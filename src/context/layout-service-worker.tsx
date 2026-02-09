@@ -26,7 +26,7 @@ const LayoutServiceWorker: FC<PropsWithChildren> = ({ children }) => {
   const [socketClient, setSocketClient] = useState<Socket>();
 
   useEffect(() => {
-    const socket = io("https://103.199.18.107:5000", {
+    const socket = io("http://103.199.18.107:5000", {
       addTrailingSlash: true,
       autoConnect: true,
     });

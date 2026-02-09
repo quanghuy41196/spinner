@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getDataGuaranteedNumbers } from "./common/functions";
-import { MAX_NUMBER } from "./App";
+import { DEFAULT_WORDS } from "./constants";
 import { Button } from "./components/button";
 import { Input } from "./components/input";
 import { guaranteedNumberDB } from "./common/db";
@@ -10,6 +10,7 @@ const Gift = () => {
   const { handleEmitData } = useLayoutServiceWorker();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dataGuaranteed, setDataGuaranteed] = useState<number[]>([]);
+  const MAX_INDEX = DEFAULT_WORDS.length - 1;
 
   const refreshData = async () => {
     const dataGua = await getDataGuaranteedNumbers();
@@ -33,7 +34,7 @@ const Gift = () => {
       return;
     }
     const newValue = +value;
-    if (newValue <= 0 || newValue > MAX_NUMBER) {
+    if (newValue < 0 || newValue > MAX_INDEX) {
       refreshInput();
       return;
     }
@@ -55,19 +56,20 @@ const Gift = () => {
         <Input
           type="number"
           className="w-[200px]"
-          placeholder={`Không vượt quá ${MAX_NUMBER}`}
+          placeholder={`Index: 0 - ${MAX_INDEX}`}
           required
-          max={MAX_NUMBER}
-          min={1}
+          max={MAX_INDEX}
+          min={0}
           ref={inputRef}
         />
         <Button onClick={handleAdd}>Thêm</Button>
       </div>
       <div className="max-h-[300px] space-y-5 overflow-y-auto px-3">
         {dataGuaranteed?.map((item, index) => {
+          const word = DEFAULT_WORDS[item] || "N/A";
           return (
             <div key={index} className="flex items-center gap-5">
-              <Input className="w-[200px]" value={item} readOnly />
+              <Input className="w-[200px]" value={`${item} - ${word}`} readOnly />
               <Button
                 className="min-w-[67px]"
                 onClick={() => handleRemove(item)}

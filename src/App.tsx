@@ -1,29 +1,46 @@
-import { Fragment, useMemo, useState } from "react";
-import bg from "./assets/images/bg.png";
-import snake1 from "./assets/images/snake-1.png";
-import snake2 from "./assets/images/snake-2.png";
-import snake3 from "./assets/images/snake-3.png";
 import gsap from "gsap";
-import { guaranteedNumberDB, usedNumberDB } from "./common/db";
-import { getDataDB } from "./common/functions";
-import { useLayoutServiceWorker } from "./context";
-import { FireworkCanvas } from "./components";
-import { gsapOne } from "./common/gasp-number";
+import { useState, useEffect } from "react";
+import Confetti from "react-confetti-boom";
+import bg from "./assets/images/bg.png";
 import {
   audioClickFunc,
   audioLoopRoller,
   audioWinnerFunc,
 } from "./common/audio-func";
-import Confetti from "react-confetti-boom";
-
-export const MAX_NUMBER = 136;
+import { guaranteedNumberDB, usedNumberDB } from "./common/db";
+import { getDataDB } from "./common/functions";
+import { gsapOne } from "./common/gasp-number";
+import { FireworkCanvas } from "./components";
+import { useLayoutServiceWorker } from "./context";
+import { DEFAULT_WORDS } from "./constants";
 
 function App() {
   const [isWinner, setIsWinner] = useState(false);
   const { handleEmitData } = useLayoutServiceWorker();
   const [isSpin, setIsSpin] = useState(false);
-  const arrayNumber = useMemo(() => MAX_NUMBER?.toString()?.split(""), []);
-  const length = arrayNumber?.length;
+  const [words, setWords] = useState<string[]>(() => {
+    // Load từ localStorage khi khởi tạo
+    const saved = localStorage.getItem('spinner_words');
+    return saved ? JSON.parse(saved) : DEFAULT_WORDS;
+  });
+  const [inputText, setInputText] = useState("");
+  const [winnerName, setWinnerName] = useState<string>("");
+  const [showModal, setShowModal] = useState(false);
+  const [customSpinAudio, setCustomSpinAudio] = useState<string>("");
+  const [customWinAudio, setCustomWinAudio] = useState<string>("");
+
+  // Load custom audio from localStorage
+  useEffect(() => {
+    const savedSpinAudio = localStorage.getItem('spinner_spin_audio');
+    const savedWinAudio = localStorage.getItem('spinner_win_audio');
+    if (savedSpinAudio) setCustomSpinAudio(savedSpinAudio);
+    if (savedWinAudio) setCustomWinAudio(savedWinAudio);
+  }, []);
+
+  // Lưu vào localStorage khi words thay đổi
+  useEffect(() => {
+    localStorage.setItem('spinner_words', JSON.stringify(words));
+  }, [words]);
 
   const handleAddUsed = async (num: number) => {
     await usedNumberDB.add(num);
@@ -41,7 +58,7 @@ function App() {
     // Ưu tiên lấy từ danh sách guaranteedNumbers
     if (guaranteedNumbers.length > 0) {
       const indexRandom = Math.floor(Math.random() * guaranteedNumbers.length);
-      const guaranteedNumber = guaranteedNumbers?.[indexRandom]; // Lấy số đầu tiên và xóa luôn
+      const guaranteedNumber = guaranteedNumbers?.[indexRandom];
       if (guaranteedNumber !== undefined) {
         usedNumberSet.add(guaranteedNumber);
         await handleAddUsed(guaranteedNumber);
@@ -52,148 +69,376 @@ function App() {
 
     let randomIndex;
     do {
-      randomIndex = Math.floor(Math.random() * MAX_NUMBER) + 1;
-    } while (usedNumberSet.has(randomIndex)); // Lặp lại nếu số đã tồn tại
+      randomIndex = Math.floor(Math.random() * words.length);
+    } while (usedNumberSet.has(randomIndex));
     await handleAddUsed(randomIndex);
     return randomIndex;
   };
 
   const handleRandomValue = async () => {
-    const prefix = "0".repeat(length - 1);
-    const numberSlice = -length;
     const randomIndex = await randomUnixIndex();
-    const arrValues = `${prefix}${randomIndex}`
-      .slice(numberSlice)
-      .toString()
-      .split("");
     return {
-      arrValues,
-      randomIndex,
+      wordIndex: randomIndex,
+      word: words[randomIndex],
     };
   };
 
   const handleSpiner = async () => {
     if (isSpin) return;
-    const { arrValues } = await handleRandomValue();
+    
+    setIsSpin(true);
+    setIsWinner(false);
+    setWinnerName(""); // Reset winner name
+    
+    const { wordIndex, word } = await handleRandomValue();
     const elems = document.querySelectorAll(".number > div");
     let isDone = false;
-    const loopRoller = audioLoopRoller();
+    
+    // Sử dụng custom audio nếu có, không thì dùng mặc định
+    const loopRoller = customSpinAudio 
+      ? new Audio(customSpinAudio)
+      : audioLoopRoller();
     loopRoller.loop = true;
-    elems.forEach((elem, index) => {
+    loopRoller.volume = 0.4;
+    
+    const audioClick = audioClickFunc();
+    audioClick.play();
+    loopRoller.play();
+    
+    elems.forEach((elem) => {
       gsap.set(elem, { y: 0 });
-      const number = arrValues?.[index];
       gsapOne({
         elem: elem as HTMLDivElement,
-        number: Number(number),
+        number: wordIndex,
         onComplete: () => {
           if (isDone) return;
-          const audioWinner = audioWinnerFunc();
+          const audioWinner = customWinAudio
+            ? new Audio(customWinAudio)
+            : audioWinnerFunc();
+          audioWinner.volume = 0.4;
           isDone = true;
           loopRoller.pause();
           audioWinner.play();
           setIsSpin(false);
           setIsWinner(true);
+          setWinnerName(word); // Set winner name
         },
         onAlmostFinished: (progress) => {
           if (progress >= 0.8) {
-            loopRoller.volume = Math.max(0, 1 - (progress - 0.8) * 5); // Âm lượng giảm từ 1 -> 0
-            // Tăng tốc độ vòng quay khi bắt đầu, giảm dần khi gần kết thúc
-            loopRoller.playbackRate = 1 - progress * 0.5; // Tốc độ từ 1 -> 0.5
+            loopRoller.volume = Math.max(0, 1 - (progress - 0.8) * 5);
+            loopRoller.playbackRate = 1 - progress * 0.5;
           }
         },
       });
     });
-    const audioClick = audioClickFunc();
-    audioClick.play();
-    loopRoller.play();
-    setIsSpin(true);
-    setIsWinner(false);
+  };
+
+  const handleAddWords = () => {
+    if (!inputText.trim()) return;
+    // Hỗ trợ cả dấu phẩy và xuống dòng
+    const newWords = inputText
+      .split(/[,\n]+/)
+      .map(w => w.trim())
+      .filter(w => w);
+    if (newWords.length > 0) {
+      setWords(newWords);
+      setInputText("");
+      setShowModal(false);
+    }
+  };
+
+  const handleImportFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      let newWords: string[] = [];
+
+      // Xử lý file CSV hoặc TXT
+      if (file.name.endsWith('.csv') || file.name.endsWith('.txt')) {
+        // Tách theo dấu phẩy hoặc xuống dòng
+        newWords = text
+          .split(/[,\n\r]+/)
+          .map(w => w.trim())
+          .filter(w => w);
+      } else if (file.name.endsWith('.json')) {
+        try {
+          const parsed = JSON.parse(text);
+          newWords = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          alert('File JSON không hợp lệ!');
+          return;
+        }
+      }
+
+      if (newWords.length > 0) {
+        // Đổ data vào textarea, mỗi tên một dòng
+        setInputText(newWords.join('\n'));
+        alert(`Đã load ${newWords.length} tên vào textarea. Kiểm tra và nhấn "Cập nhật danh sách" để lưu.`);
+      } else {
+        alert('Không tìm thấy dữ liệu trong file!');
+      }
+    };
+
+    reader.readAsText(file);
+    // Reset input để có thể upload lại cùng file
+    event.target.value = '';
+  };
+
+  const handleAudioUpload = (event: React.ChangeEvent<HTMLInputElement>, type: 'spin' | 'win') => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Kiểm tra file audio
+    if (!file.type.startsWith('audio/')) {
+      alert('Vui lòng chọn file âm thanh!');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const base64 = e.target?.result as string;
+      
+      if (type === 'spin') {
+        setCustomSpinAudio(base64);
+        localStorage.setItem('spinner_spin_audio', base64);
+      } else {
+        setCustomWinAudio(base64);
+        localStorage.setItem('spinner_win_audio', base64);
+      }
+      
+      alert('Đã tải lên nhạc thành công!');
+    };
+
+    reader.readAsDataURL(file);
+    event.target.value = '';
+  };
+
+  const handleRemoveAudio = (type: 'spin' | 'win') => {
+    if (type === 'spin') {
+      setCustomSpinAudio("");
+      localStorage.removeItem('spinner_spin_audio');
+    } else {
+      setCustomWinAudio("");
+      localStorage.removeItem('spinner_win_audio');
+    }
+    alert('Đã xóa nhạc tùy chỉnh!');
   };
 
   return (
     <>
-      <div className="h-screen relative z-[10]">
-        <div className="absolute top-[450px] left-1/2 -translate-x-1/2">
-          <div className="h-[229px] w-[600px] rounded-lg bg-[#FFC04A] p-[6px]">
-            <div className="w-full h-full bg-[#FDE6A0] rounded-[0.3rem] p-5 flex items-center gap-5">
-              <div className="flex items-center gap-3 h-full [&>*]:w-[125px] [&>*]:h-full">
-                {arrayNumber?.map((_, index) => {
-                  return (
-                    <div
-                      key={index}
-                      className="text-center bg-[#C02520] rounded-[0.6rem] p-1"
-                    >
-                      <div
-                        className="h-full text-white flex flex-col overflow-hidden items-center justify-center rounded-[0.4rem] font-semibold"
-                        style={{
-                          background: "linear-gradient(#FFF080, #FF7700)",
-                        }}
-                      >
-                        <div className="h-[128px] overflow-hidden number select-none">
-                          <div className="flex flex-col text-center text-9xl flex-shrink-[1]">
-                            {Array(10)
-                              .fill("")
-                              .map((_, indexNumber) => {
-                                const number = indexNumber;
-                                return (
-                                  <Fragment key={indexNumber}>
-                                    <span
-                                      className="leading-[128px]"
-                                      data-value={number}
-                                    >
-                                      {indexNumber}
-                                    </span>
+      {/* Settings Button */}
+      <button
+        onClick={() => setShowModal(true)}
+        className="fixed top-8 left-8 z-20 bg-white text-gray-700 p-4 rounded-full shadow-2xl hover:scale-110 transition-all"
+        title="Cài đặt"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      </button>
 
-                                    {number === 9 && (
-                                      <span
-                                        className="leading-[128px]"
-                                        data-value={0}
-                                      >
-                                        {0}
-                                      </span>
-                                    )}
-                                  </Fragment>
-                                );
-                              })}
-                          </div>
+      {/* Modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50" onClick={() => setShowModal(false)}>
+          <div className="bg-white rounded-3xl p-8 max-w-2xl w-full mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-3xl font-bold text-gray-800">Cài đặt danh sách</h2>
+              <button
+                onClick={() => setShowModal(false)}
+                className="text-gray-500 hover:text-gray-700 text-4xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Input area */}
+            <div className="space-y-4">
+              <div className="flex flex-col gap-3">
+                <textarea
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  placeholder="Nhập danh sách tên (mỗi tên trên một dòng hoặc phân cách bởi dấu phẩy)&#10;&#10;Ví dụ:&#10;Nguyễn Văn A&#10;Trần Thị B&#10;Lê Văn C"
+                  className="flex-1 px-4 py-3 rounded-xl border-2 border-gray-300 focus:outline-none focus:border-[#F5971E] text-lg min-h-[200px] resize-none"
+                  rows={8}
+                />
+                <button
+                  onClick={handleAddWords}
+                  className="bg-[#4CAF50] text-white px-6 py-3 rounded-xl font-semibold hover:scale-105 transition-all self-end"
+                >
+                  Cập nhật danh sách
+                </button>
+              </div>
+
+              {/* Import button */}
+              <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                <label className="bg-[#2196F3] text-white px-6 py-3 rounded-xl font-semibold cursor-pointer hover:scale-105 transition-all flex items-center gap-2">
+                  <input
+                    type="file"
+                    accept=".txt,.csv,.json"
+                    onChange={handleImportFile}
+                    className="hidden"
+                  />
+                  📥 Import từ File
+                </label>
+                <span className="text-gray-600 text-sm">
+                  {words.length} tên trong danh sách
+                </span>
+              </div>
+
+              {/* Audio Settings */}
+              <div className="pt-6 border-t border-gray-200">
+                <h3 className="text-xl font-semibold text-gray-800 mb-4">🎵 Cài đặt nhạc</h3>
+                
+                {/* Spin Audio */}
+                <div className="space-y-3 mb-4">
+                  <label className="block text-sm font-medium text-gray-700">Nhạc khi quay</label>
+                  <div className="flex items-center gap-3">
+                    <label className="bg-purple-500 text-white px-4 py-2 rounded-lg font-semibold cursor-pointer hover:scale-105 transition-all flex items-center gap-2">
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        onChange={(e) => handleAudioUpload(e, 'spin')}
+                        className="hidden"
+                      />
+                      🎶 {customSpinAudio ? 'Thay đổi' : 'Tải lên'}
+                    </label>
+                    {customSpinAudio && (
+                      <button
+                        onClick={() => handleRemoveAudio('spin')}
+                        className="bg-red-500 text-white px-4 py-2 rounded-lg font-semibold hover:scale-105 transition-all"
+                      >
+                        🗑️ Xóa
+                      </button>
+                    )}
+                    <span className="text-sm text-gray-600">
+                      {customSpinAudio ? '✅ Đã tùy chỉnh' : '🔊 Mặc định'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Win Audio */}
+                <div className="space-y-3">
+                  <label className="block text-sm font-medium text-gray-700">Nhạc khi trúng thưởng</label>
+                  <div className="flex items-center gap-3">
+                    <label className="bg-purple-500 text-white px-4 py-2 rounded-lg font-semibold cursor-pointer hover:scale-105 transition-all flex items-center gap-2">
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        onChange={(e) => handleAudioUpload(e, 'win')}
+                        className="hidden"
+                      />
+                      🎶 {customWinAudio ? 'Thay đổi' : 'Tải lên'}
+                    </label>
+                    {customWinAudio && (
+                      <button
+                        onClick={() => handleRemoveAudio('win')}
+                        className="bg-red-500 text-white px-4 py-2 rounded-lg font-semibold hover:scale-105 transition-all"
+                      >
+                        🗑️ Xóa
+                      </button>
+                    )}
+                    <span className="text-sm text-gray-600">
+                      {customWinAudio ? '✅ Đã tùy chỉnh' : '🔊 Mặc định'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="h-screen relative z-[10] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-6">
+          {/* Decorative border with dots */}
+          <div className="relative bg-[#FFC04A] rounded-3xl p-5 shadow-2xl">
+            {/* Dots border */}
+            <div className="absolute inset-0 rounded-3xl p-2">
+              {/* Top dots */}
+              <div className="absolute top-0 left-0 right-0 flex justify-around px-8">
+                {Array(30).fill("").map((_, i) => (
+                  <div key={`top-${i}`} className="w-5 h-5 bg-white rounded-full" />
+                ))}
+              </div>
+              {/* Bottom dots */}
+              <div className="absolute bottom-0 left-0 right-0 flex justify-around px-8">
+                {Array(30).fill("").map((_, i) => (
+                  <div key={`bottom-${i}`} className="w-5 h-5 bg-white rounded-full" />
+                ))}
+              </div>
+              {/* Left dots */}
+              <div className="absolute left-0 top-0 bottom-0 flex flex-col justify-around py-5">
+                {Array(6).fill("").map((_, i) => (
+                  <div key={`left-${i}`} className="w-5 h-5 bg-white rounded-full" />
+                ))}
+              </div>
+              {/* Right dots */}
+              <div className="absolute right-0 top-0 bottom-0 flex flex-col justify-around py-5">
+                {Array(6).fill("").map((_, i) => (
+                  <div key={`right-${i}`} className="w-5 h-5 bg-white rounded-full" />
+                ))}
+              </div>
+            </div>
+
+            {/* Display area */}
+            <div className="relative bg-white rounded-2xl p-6 min-w-[1000px] min-h-[200px] flex items-center justify-center">
+              {isWinner && winnerName ? (
+                // Hiển thị tên trúng thưởng
+                <div className="text-center px-8">
+                  <h2 className="text-7xl font-bold text-black whitespace-nowrap">
+                    {winnerName}
+                  </h2>
+                </div>
+              ) : (
+                // Hiển thị spinner
+                <div className="flex items-center justify-center h-[140px] min-w-[600px] max-w-[900px] px-8">
+                  <div className="text-center rounded-[0.6rem] w-full h-full">
+                    <div className="h-full text-black flex flex-col overflow-hidden items-center justify-center rounded-[0.4rem] font-semibold bg-white">
+                      <div className="h-[128px] overflow-hidden number select-none">
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 0, lineHeight: 0, fontSize: 0 }}>
+                          {[...words, words[0]].map((word, indexWord) => (
+                            <div
+                              key={indexWord}
+                              className="bg-white text-6xl"
+                              data-value={indexWord >= words.length ? 0 : indexWord}
+                              style={{ 
+                                height: '128px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                whiteSpace: 'nowrap',
+                                lineHeight: 'normal',
+                                marginTop: 0,
+                                marginBottom: 0,
+                              }}
+                            >
+                              {word}
+                            </div>
+                          ))}
                         </div>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-
-              <button
-                className={`flex items-center justify-center bg-[#F5971E] text-white p-1 rounded-[0.6rem] min-w-[126px] h-[64px] ${
-                  isSpin ? "opacity-50 cursor-default" : ""
-                }`}
-                onClick={handleSpiner}
-              >
-                <div className="w-full h-full bg-[#DE0202] rounded-[0.4rem] flex items-center justify-center text-3xl font-semibold uppercase">
-                  Quay
+                  </div>
                 </div>
-              </button>
+              )}
             </div>
           </div>
-          <div
-            className="absolute h-[249px] w-[265px] bg-contain bg-no-repeat -top-1/2 left-0 -rotate-[8.94deg] -translate-x-1/2 z-[-2]"
-            style={{ backgroundImage: `url(${snake1})` }}
-          ></div>
 
-          <div
-            className="absolute h-[249px] w-[265px] bg-contain bg-no-repeat right-0 top-0 rotate-[0.89deg] translate-x-[45%] z-[-2]"
-            style={{ backgroundImage: `url(${snake2})` }}
-          ></div>
-
-          <div
-            className="absolute h-[166px] w-[384px] bg-contain bg-no-repeat -rotate-[8.66deg] right-0 bottom-[-57px] translate-x-[20%] z-[-2]"
-            style={{ backgroundImage: `url(${snake3})` }}
-          ></div>
-
-          <div
-            className="absolute h-[166px] w-[384px] bg-contain bg-no-repeat -rotate-[8.67deg] left-0 -bottom-[50px] -translate-x-[30%] z-[-2]"
-            style={{ backgroundImage: `url(${snake3})` }}
-          ></div>
+          {/* Button */}
+          <button
+            className={`bg-[#FFC04A] text-white px-16 py-4 rounded-2xl min-w-[320px] shadow-xl transition-all ${
+              isSpin ? "opacity-50 cursor-default" : "hover:scale-105"
+            }`}
+            onClick={handleSpiner}
+          >
+            <div className="text-4xl font-bold uppercase tracking-wide">
+              {isWinner && winnerName ? "Quay lại" : "Bắt đầu"}
+            </div>
+          </button>
         </div>
       </div>
       <FireworkCanvas />

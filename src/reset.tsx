@@ -4,6 +4,7 @@ import { Input } from "./components/input";
 import { Button } from "./components/button";
 import { usedNumberDB } from "./common/db";
 import { useLayoutServiceWorker } from "./context";
+import { DEFAULT_WORDS } from "./constants";
 
 const Reset = () => {
   const {handleEmitData} = useLayoutServiceWorker()
@@ -41,9 +42,10 @@ const Reset = () => {
       </div>
       <div className="max-h-[300px] space-y-5 overflow-y-auto px-3">
         {dataUsedNumbers?.map((item, index) => {
+          const word = DEFAULT_WORDS[item] || "N/A";
           return (
             <div key={index} className="flex items-center gap-5">
-              <Input className="w-[200px]" value={item} readOnly />
+              <Input className="w-[200px]" value={`${item} - ${word}`} readOnly />
               <Button
                 className="min-w-[67px]"
                 onClick={() => handleRemove(item)}
