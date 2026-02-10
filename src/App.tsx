@@ -1,22 +1,25 @@
 import gsap from "gsap";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import Confetti from "react-confetti-boom";
+import { useNavigate } from "react-router-dom";
 import bg from "./assets/images/bg.png";
 import {
   audioClickFunc,
   audioLoopRoller,
   audioWinnerFunc,
 } from "./common/audio-func";
-import { guaranteedNumberDB, usedNumberDB } from "./common/db";
-import { getDataDB } from "./common/functions";
 import { gsapOne } from "./common/gasp-number";
 import { FireworkCanvas } from "./components";
-import { useLayoutServiceWorker } from "./context";
 import { DEFAULT_WORDS } from "./constants";
 
+interface GuaranteedWinner {
+  id: number;
+  name: string;
+}
+
 function App() {
+  const navigate = useNavigate();
   const [isWinner, setIsWinner] = useState(false);
-  const { handleEmitData } = useLayoutServiceWorker();
   const [isSpin, setIsSpin] = useState(false);
   const [words, setWords] = useState<string[]>(() => {
     // Load từ localStorage khi khởi tạo
@@ -28,13 +31,21 @@ function App() {
   const [showModal, setShowModal] = useState(false);
   const [customSpinAudio, setCustomSpinAudio] = useState<string>("");
   const [customWinAudio, setCustomWinAudio] = useState<string>("");
+  const [currentSpinCount, setCurrentSpinCount] = useState<number>(0);
 
-  // Load custom audio from localStorage
+  // Load custom audio from localStorage & Reset lượt quay khi refresh
   useEffect(() => {
     const savedSpinAudio = localStorage.getItem('spinner_spin_audio');
     const savedWinAudio = localStorage.getItem('spinner_win_audio');
     if (savedSpinAudio) setCustomSpinAudio(savedSpinAudio);
     if (savedWinAudio) setCustomWinAudio(savedWinAudio);
+
+    // Reset lượt quay về 0 khi refresh trang
+    setCurrentSpinCount(0);
+    localStorage.setItem('current_spin_count', '0');
+    localStorage.setItem('guaranteed_winner_index', '0');
+    localStorage.removeItem('used_numbers');
+    console.log('🔄 Refresh trang - Reset toàn bộ lượt quay');
   }, []);
 
   // Lưu vào localStorage khi words thay đổi
@@ -42,86 +53,246 @@ function App() {
     localStorage.setItem('spinner_words', JSON.stringify(words));
   }, [words]);
 
-  const handleAddUsed = async (num: number) => {
-    await usedNumberDB.add(num);
-    handleEmitData("add_used", num);
-  };
+  const getGuaranteedWinner = (): { name: string; index: number } | null => {
+    const guaranteedWinners: GuaranteedWinner[] = JSON.parse(
+      localStorage.getItem('guaranteed_winners') || '[]'
+    );
 
-  const handleDeleteGuaranteed = async (num: number) => {
-    await guaranteedNumberDB.delete(num);
-    handleEmitData("delete_guaranteed", num);
-  };
+    const currentIndex = parseInt(localStorage.getItem('guaranteed_winner_index') || '0');
 
-  const randomUnixIndex = async () => {
-    const { guaranteedNumbers, usedNumbers } = await getDataDB();
-    const usedNumberSet = new Set(usedNumbers);
-    // Ưu tiên lấy từ danh sách guaranteedNumbers
-    if (guaranteedNumbers.length > 0) {
-      const indexRandom = Math.floor(Math.random() * guaranteedNumbers.length);
-      const guaranteedNumber = guaranteedNumbers?.[indexRandom];
-      if (guaranteedNumber !== undefined) {
-        usedNumberSet.add(guaranteedNumber);
-        await handleAddUsed(guaranteedNumber);
-        await handleDeleteGuaranteed(guaranteedNumber);
-        return guaranteedNumber;
+    console.log(`Check guaranteed: index=${currentIndex}, total=${guaranteedWinners.length}`);
+
+    // Nếu hết danh sách guaranteed winners
+    if (currentIndex >= guaranteedWinners.length) {
+      console.log('Hết danh sách guaranteed winners, quay random');
+      return null;
+    }
+
+    const nextWinner = guaranteedWinners[currentIndex];
+
+    if (nextWinner) {
+      console.log(`Tìm thấy guaranteed winner: ${nextWinner.name} (thứ tự #${currentIndex + 1})`);
+
+      // Nếu là RANDOM thì quay ngẫu nhiên
+      if (nextWinner.name === 'RANDOM') {
+        console.log('Lượt này là RANDOM - sẽ quay ngẫu nhiên');
+        return { name: 'RANDOM', index: -1 }; // -1 để báo hiệu cần quay random
+      }
+
+      // Tìm index của tên trong danh sách words
+      const wordIndex = words.findIndex(w => w === nextWinner.name);
+      if (wordIndex !== -1) {
+        console.log(`Match với index ${wordIndex} trong danh sách`);
+        return { name: nextWinner.name, index: wordIndex };
+      } else {
+        // Tên không tồn tại trong danh sách, log cảnh báo và skip đến người tiếp theo
+        console.warn(`Guaranteed winner "${nextWinner.name}" không tồn tại trong danh sách. Bỏ qua và tăng index.`);
+
+        // Tăng index để bỏ qua tên này
+        localStorage.setItem('guaranteed_winner_index', (currentIndex + 1).toString());
+
+        // Thử lấy người tiếp theo
+        return getGuaranteedWinner();
       }
     }
 
-    let randomIndex;
-    do {
-      randomIndex = Math.floor(Math.random() * words.length);
-    } while (usedNumberSet.has(randomIndex));
-    await handleAddUsed(randomIndex);
+    console.log('Không tìm thấy guaranteed winner');
+    return null;
+  };
+
+  const randomUnixIndex = (): number => {
+    let usedNumbers: number[] = JSON.parse(
+      localStorage.getItem('used_numbers') || '[]'
+    );
+    let usedNumberSet = new Set(usedNumbers);
+
+    // Nếu đã hết số để quay, reset lại
+    if (usedNumberSet.size >= words.length) {
+      console.log('Đã quay hết tất cả, reset lại danh sách');
+      usedNumbers = [];
+      usedNumberSet = new Set();
+      localStorage.setItem('used_numbers', '[]');
+    }
+
+    // Tìm tất cả số chưa sử dụng
+    const availableIndices: number[] = [];
+    for (let i = 0; i < words.length; i++) {
+      if (!usedNumberSet.has(i)) {
+        availableIndices.push(i);
+      }
+    }
+
+    // Nếu không còn số nào available (không nên xảy ra sau reset ở trên)
+    if (availableIndices.length === 0) {
+      console.error('Không tìm thấy số available, reset và lấy số 0');
+      localStorage.setItem('used_numbers', '[0]');
+      return 0;
+    }
+
+    // Chọn ngẫu nhiên từ các số available
+    const randomIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)];
+
+    // Lưu số đã sử dụng
+    usedNumbers.push(randomIndex);
+    localStorage.setItem('used_numbers', JSON.stringify(usedNumbers));
+
+    console.log(`Quay được số ${randomIndex} (${words[randomIndex]}), còn ${availableIndices.length - 1} số chưa quay`);
+
     return randomIndex;
   };
 
-  const handleRandomValue = async () => {
-    const randomIndex = await randomUnixIndex();
+  const handleRandomValue = (): { wordIndex: number; word: string; isGuaranteed: boolean } => {
+    console.log(`=== Lượt quay ${currentSpinCount + 1} ===`);
+
+    // Ưu tiên kiểm tra guaranteed winner
+    const guaranteedWinner = getGuaranteedWinner();
+
+    if (guaranteedWinner) {
+      // Nếu là RANDOM (index = -1), quay ngẫu nhiên nhưng vẫn tăng guaranteed index
+      if (guaranteedWinner.index === -1) {
+        console.log('Guaranteed winner là RANDOM - quay ngẫu nhiên');
+        const randomIndex = randomUnixIndex();
+        return {
+          wordIndex: randomIndex,
+          word: words[randomIndex],
+          isGuaranteed: true, // Vẫn đánh dấu là guaranteed để tăng index
+        };
+      }
+
+      console.log(`Sử dụng guaranteed winner: ${guaranteedWinner.name} (index: ${guaranteedWinner.index})`);
+
+      // Cũng cần lưu vào used_numbers để tránh trùng
+      const usedNumbers: number[] = JSON.parse(
+        localStorage.getItem('used_numbers') || '[]'
+      );
+
+      if (!usedNumbers.includes(guaranteedWinner.index)) {
+        usedNumbers.push(guaranteedWinner.index);
+        localStorage.setItem('used_numbers', JSON.stringify(usedNumbers));
+      }
+
+      return {
+        wordIndex: guaranteedWinner.index,
+        word: guaranteedWinner.name,
+        isGuaranteed: true,
+      };
+    }
+
+    // Không có guaranteed winner, quay ngẫu nhiên
+    console.log('Không có guaranteed winner, quay ngẫu nhiên');
+    const randomIndex = randomUnixIndex();
     return {
       wordIndex: randomIndex,
       word: words[randomIndex],
+      isGuaranteed: false,
     };
   };
 
-  const handleSpiner = async () => {
-    if (isSpin) return;
-    
+  const handleSpiner = () => {
+    if (isSpin) {
+      console.log('Đang quay, bỏ qua click');
+      return;
+    }
+
+    console.log('=== BẮT ĐẦU QUAY ===');
     setIsSpin(true);
     setIsWinner(false);
     setWinnerName(""); // Reset winner name
-    
-    const { wordIndex, word } = await handleRandomValue();
-    const elems = document.querySelectorAll(".number > div");
+
+    // Đợi DOM re-render để đảm bảo có spinner elements
+    setTimeout(() => {
+      const { wordIndex, word, isGuaranteed } = handleRandomValue();
+      const elems = document.querySelectorAll(".number > div");
+
+      console.log(`Tìm thấy ${elems.length} elements để animate`);
+
+      // Nếu không tìm thấy elements, reset state và thử lại
+      if (elems.length === 0) {
+        console.error('Không tìm thấy elements! Reset state và thử lại sau 100ms');
+        setTimeout(() => {
+          const retryElems = document.querySelectorAll(".number > div");
+          console.log(`Retry: Tìm thấy ${retryElems.length} elements`);
+
+          if (retryElems.length === 0) {
+            console.error('Vẫn không tìm thấy elements! Force reset state');
+            setIsSpin(false);
+            alert('Lỗi: Không tìm thấy spinner elements. Vui lòng refresh trang!');
+            return;
+          }
+
+          // Retry animation với elements mới
+          startAnimation(retryElems, wordIndex, word, isGuaranteed);
+        }, 100);
+        return;
+      }
+
+      startAnimation(elems, wordIndex, word, isGuaranteed);
+    }, 50); // Đợi 50ms cho DOM update
+  };
+
+  const startAnimation = (elems: NodeListOf<Element>, wordIndex: number, word: string, isGuaranteed: boolean) => {
     let isDone = false;
-    
+
+    // Fallback timeout nếu animation không kết thúc
+    const safetyTimeout = setTimeout(() => {
+      if (!isDone) {
+        console.error('Animation timeout! Force reset state');
+        setIsSpin(false);
+        setIsWinner(true);
+        setWinnerName(word);
+        setCurrentSpinCount(prev => prev + 1);
+      }
+    }, 10000); // 10 giây timeout
+
     // Sử dụng custom audio nếu có, không thì dùng mặc định
-    const loopRoller = customSpinAudio 
+    const loopRoller = customSpinAudio
       ? new Audio(customSpinAudio)
       : audioLoopRoller();
     loopRoller.loop = true;
     loopRoller.volume = 0.4;
-    
+
     const audioClick = audioClickFunc();
     audioClick.play();
     loopRoller.play();
-    
-    elems.forEach((elem) => {
+
+    elems.forEach((elem, idx) => {
+      console.log(`Animate elem ${idx}`);
       gsap.set(elem, { y: 0 });
       gsapOne({
         elem: elem as HTMLDivElement,
         number: wordIndex,
         onComplete: () => {
-          if (isDone) return;
+          if (isDone) {
+            console.log(`onComplete called but already done (elem ${idx})`);
+            return;
+          }
+
+          console.log(`=== ANIMATION COMPLETE (elem ${idx}) ===`);
+
           const audioWinner = customWinAudio
             ? new Audio(customWinAudio)
             : audioWinnerFunc();
           audioWinner.volume = 0.4;
           isDone = true;
+
+          // Clear safety timeout
+          if (safetyTimeout) clearTimeout(safetyTimeout);
+
           loopRoller.pause();
           audioWinner.play();
+
+          console.log('Setting state: isSpin=false, isWinner=true');
           setIsSpin(false);
           setIsWinner(true);
-          setWinnerName(word); // Set winner name
+          setWinnerName(word);
+          setCurrentSpinCount(prev => prev + 1);
+
+          // Nếu là guaranteed winner, tăng index
+          if (isGuaranteed) {
+            const currentIndex = parseInt(localStorage.getItem('guaranteed_winner_index') || '0');
+            localStorage.setItem('guaranteed_winner_index', (currentIndex + 1).toString());
+            console.log(`Tăng guaranteed_winner_index -> ${currentIndex + 1}`);
+          }
         },
         onAlmostFinished: (progress) => {
           if (progress >= 0.8) {
@@ -200,7 +371,7 @@ function App() {
     const reader = new FileReader();
     reader.onload = (e) => {
       const base64 = e.target?.result as string;
-      
+
       if (type === 'spin') {
         setCustomSpinAudio(base64);
         localStorage.setItem('spinner_spin_audio', base64);
@@ -208,7 +379,7 @@ function App() {
         setCustomWinAudio(base64);
         localStorage.setItem('spinner_win_audio', base64);
       }
-      
+
       alert('Đã tải lên nhạc thành công!');
     };
 
@@ -239,6 +410,15 @@ function App() {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
+
+      {/* Admin Button */}
+      {/* <button
+        onClick={() => navigate('/admin')}
+        className="fixed top-8 right-8 z-20 bg-purple-600 text-white px-6 py-3 rounded-full shadow-2xl hover:scale-110 transition-all font-semibold"
+        title="Admin Panel"
+      >
+        🔐 Admin
+      </button> */}
       </button>
 
       {/* Modal */}
@@ -292,7 +472,7 @@ function App() {
               {/* Audio Settings */}
               <div className="pt-6 border-t border-gray-200">
                 <h3 className="text-xl font-semibold text-gray-800 mb-4">🎵 Cài đặt nhạc</h3>
-                
+
                 {/* Spin Audio */}
                 <div className="space-y-3 mb-4">
                   <label className="block text-sm font-medium text-gray-700">Nhạc khi quay</label>
@@ -352,7 +532,7 @@ function App() {
         </div>
       )}
 
-      <div className="h-screen relative z-[10] flex items-center justify-center">
+      <div className="h-screen relative z-[10] flex items-center pt-[120px] justify-center">
         <div className="flex flex-col items-center gap-6">
           {/* Decorative border with dots */}
           <div className="relative bg-[#FFC04A] rounded-3xl p-5 shadow-2xl">
@@ -385,7 +565,7 @@ function App() {
             </div>
 
             {/* Display area */}
-            <div className="relative bg-white rounded-2xl p-6 min-w-[1000px] min-h-[200px] flex items-center justify-center">
+            <div className="relative bg-white rounded-2xl p-6 min-w-[800px] min-h-[200px] flex items-center justify-center">
               {isWinner && winnerName ? (
                 // Hiển thị tên trúng thưởng
                 <div className="text-center px-8">
@@ -399,21 +579,24 @@ function App() {
                   <div className="text-center rounded-[0.6rem] w-full h-full">
                     <div className="h-full text-black flex flex-col overflow-hidden items-center justify-center rounded-[0.4rem] font-semibold bg-white">
                       <div className="h-[128px] overflow-hidden number select-none">
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 0, lineHeight: 0, fontSize: 0 }}>
+                        <div style={{ margin: 0, padding: 0 }}>
                           {[...words, words[0]].map((word, indexWord) => (
                             <div
                               key={indexWord}
-                              className="bg-white text-6xl"
+                              className="bg-white text-black"
                               data-value={indexWord >= words.length ? 0 : indexWord}
-                              style={{ 
+                              style={{
                                 height: '128px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
+                                display: 'block',
+                                textAlign: 'center',
                                 whiteSpace: 'nowrap',
-                                lineHeight: 'normal',
-                                marginTop: 0,
-                                marginBottom: 0,
+                                fontSize: '3.75rem',
+                                lineHeight: '128px',
+                                margin: 0,
+                                padding: 0,
+                                border: 'none',
+                                outline: 'none',
+                                verticalAlign: 'top',
                               }}
                             >
                               {word}

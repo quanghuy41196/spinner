@@ -1,13 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
-  createContext,
-  FC,
-  PropsWithChildren,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
+    createContext,
+    FC,
+    PropsWithChildren,
+    useCallback,
+    useContext,
+    useEffect,
+    useMemo,
+    useState,
 } from "react";
 import { io, Socket } from "socket.io-client";
 import { objAction } from "../common/action";
@@ -62,7 +62,7 @@ const LayoutServiceWorker: FC<PropsWithChildren> = ({ children }) => {
       handleEmitData,
     };
   }, [socketClient, handleEmitData]);
-  
+
   return (
     <serviceWorkerContext.Provider value={values}>
       {children}

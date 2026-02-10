@@ -1,30 +1,31 @@
 import { useEffect, useState } from "react";
-import { getDataUsedNumbers } from "./common/functions";
-import { Input } from "./components/input";
 import { Button } from "./components/button";
-import { usedNumberDB } from "./common/db";
-import { useLayoutServiceWorker } from "./context";
+import { Input } from "./components/input";
 import { DEFAULT_WORDS } from "./constants";
 
 const Reset = () => {
-  const {handleEmitData} = useLayoutServiceWorker()
   const [dataUsedNumbers, setDataUsedNumbers] = useState<number[]>([]);
+  const [words, setWords] = useState<string[]>([]);
 
-  const refreshData = async () => {
-    const dataGua = await getDataUsedNumbers();
-    setDataUsedNumbers(dataGua);
+  const refreshData = () => {
+    const data: number[] = JSON.parse(localStorage.getItem('used_numbers') || '[]');
+    setDataUsedNumbers(data);
+
+    const savedWords = localStorage.getItem('spinner_words');
+    setWords(savedWords ? JSON.parse(savedWords) : DEFAULT_WORDS);
   };
 
-  const handleRemove = async (num: number) => {
-    await usedNumberDB.delete(num);
-    handleEmitData("delete_used", num)
+  const handleRemove = (num: number) => {
+    const updated = dataUsedNumbers.filter(n => n !== num);
+    localStorage.setItem('used_numbers', JSON.stringify(updated));
     refreshData();
   };
 
-  const handleRemoveAll = async () => {
-    await usedNumberDB.clearAll();
-    handleEmitData("delete_all_used", undefined)
-    refreshData();
+  const handleRemoveAll = () => {
+    if (window.confirm('Bạn có chắc muốn xóa tất cả?')) {
+      localStorage.setItem('used_numbers', '[]');
+      refreshData();
+    }
   };
 
   useEffect(() => {
@@ -42,7 +43,7 @@ const Reset = () => {
       </div>
       <div className="max-h-[300px] space-y-5 overflow-y-auto px-3">
         {dataUsedNumbers?.map((item, index) => {
-          const word = DEFAULT_WORDS[item] || "N/A";
+          const word = words[item] || "N/A";
           return (
             <div key={index} className="flex items-center gap-5">
               <Input className="w-[200px]" value={`${item} - ${word}`} readOnly />

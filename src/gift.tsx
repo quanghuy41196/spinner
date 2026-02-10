@@ -1,23 +1,23 @@
 import { useEffect, useRef, useState } from "react";
-import { getDataGuaranteedNumbers } from "./common/functions";
-import { DEFAULT_WORDS } from "./constants";
 import { Button } from "./components/button";
 import { Input } from "./components/input";
-import { guaranteedNumberDB } from "./common/db";
-import { useLayoutServiceWorker } from "./context";
+import { DEFAULT_WORDS } from "./constants";
 
 const Gift = () => {
-  const { handleEmitData } = useLayoutServiceWorker();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dataGuaranteed, setDataGuaranteed] = useState<number[]>([]);
-  const MAX_INDEX = DEFAULT_WORDS.length - 1;
+  const [words, setWords] = useState<string[]>([]);
+  const MAX_INDEX = words.length - 1;
 
-  const refreshData = async () => {
-    const dataGua = await getDataGuaranteedNumbers();
-    setDataGuaranteed(dataGua);
+  const refreshData = () => {
+    const data: number[] = JSON.parse(localStorage.getItem('guaranteed_numbers') || '[]');
+    setDataGuaranteed(data);
+
+    const savedWords = localStorage.getItem('spinner_words');
+    setWords(savedWords ? JSON.parse(savedWords) : DEFAULT_WORDS);
   };
 
-  const refreshInput = async () => {
+  const refreshInput = () => {
     if (!inputRef.current) return;
     inputRef.current.value = "";
     inputRef.current.focus();
@@ -27,7 +27,7 @@ const Gift = () => {
     refreshData();
   }, []);
 
-  const handleAdd = async () => {
+  const handleAdd = () => {
     const value = inputRef.current?.value;
     if (!value) {
       refreshInput();
@@ -35,18 +35,27 @@ const Gift = () => {
     }
     const newValue = +value;
     if (newValue < 0 || newValue > MAX_INDEX) {
+      alert(`Vui lòng nhập số từ 0 đến ${MAX_INDEX}`);
       refreshInput();
       return;
     }
-    await guaranteedNumberDB.add(newValue);
-    await refreshData();
-    handleEmitData("add_guaranteed", newValue);
+
+    // Kiểm tra trùng
+    if (dataGuaranteed.includes(newValue)) {
+      alert('Số này đã tồn tại!');
+      refreshInput();
+      return;
+    }
+
+    const updated = [...dataGuaranteed, newValue];
+    localStorage.setItem('guaranteed_numbers', JSON.stringify(updated));
+    refreshData();
     refreshInput();
   };
 
-  const handleRemove = async (num: number) => {
-    await guaranteedNumberDB.delete(num);
-    handleEmitData("delete_guaranteed", num);
+  const handleRemove = (num: number) => {
+    const updated = dataGuaranteed.filter(n => n !== num);
+    localStorage.setItem('guaranteed_numbers', JSON.stringify(updated));
     refreshData();
   };
 
@@ -66,7 +75,7 @@ const Gift = () => {
       </div>
       <div className="max-h-[300px] space-y-5 overflow-y-auto px-3">
         {dataGuaranteed?.map((item, index) => {
-          const word = DEFAULT_WORDS[item] || "N/A";
+          const word = words[item] || "N/A";
           return (
             <div key={index} className="flex items-center gap-5">
               <Input className="w-[200px]" value={`${item} - ${word}`} readOnly />

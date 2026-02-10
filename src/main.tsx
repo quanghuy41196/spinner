@@ -1,38 +1,18 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { createRoot } from "react-dom/client";
-import "./index.css";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
+import Admin from "./Admin.tsx";
 import App from "./App.tsx";
 import Gift from "./gift.tsx";
+import "./index.css";
 import Reset from "./reset.tsx";
-import { LayoutServiceWorker } from "./context";
 
 createRoot(document.getElementById("root")!).render(
   <BrowserRouter>
     <Routes>
-      <Route
-        path="/"
-        element={
-          <LayoutServiceWorker>
-            <App />
-          </LayoutServiceWorker>
-        }
-      />
-      <Route
-        path="/gift"
-        element={
-          <LayoutServiceWorker>
-            <Gift />
-          </LayoutServiceWorker>
-        }
-      />
-      <Route
-        path="/reset"
-        element={
-          <LayoutServiceWorker>
-            <Reset />
-          </LayoutServiceWorker>
-        }
-      />
+      <Route path="/" element={<App />} />
+      <Route path="/gift" element={<Gift />} />
+      <Route path="/reset" element={<Reset />} />
+      <Route path="/admin" element={<Admin />} />
     </Routes>
   </BrowserRouter>
 );
