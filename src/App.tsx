@@ -1,77 +1,76 @@
 import gsap from "gsap";
 import { useEffect, useState } from "react";
 import Confetti from "react-confetti-boom";
-import { useNavigate } from "react-router-dom";
 import bg from "./assets/images/bg.png";
 import {
-  audioClickFunc,
   audioLoopRoller,
-  audioWinnerFunc,
+  audioWinnerFunc
 } from "./common/audio-func";
 import { gsapOne } from "./common/gasp-number";
 import { FireworkCanvas } from "./components";
-import { DEFAULT_WORDS } from "./constants";
-
-interface GuaranteedWinner {
-  id: number;
-  name: string;
-}
+import { useFirebaseSync } from "./hooks/useFirebaseSync";
 
 function App() {
-  const navigate = useNavigate();
+  // Firebase sync
+  const {
+    isLoading: isFirebaseLoading,
+    words,
+    guaranteedWinners,
+    currentSpinCount,
+    guaranteedWinnerIndex,
+    spinDuration,
+    syncWords,
+    syncSpinCount,
+    syncGuaranteedWinnerIndex,
+    syncSpinDuration
+  } = useFirebaseSync();
+
   const [isWinner, setIsWinner] = useState(false);
   const [isSpin, setIsSpin] = useState(false);
-  const [words, setWords] = useState<string[]>(() => {
-    // Load từ localStorage khi khởi tạo
-    const saved = localStorage.getItem('spinner_words');
-    return saved ? JSON.parse(saved) : DEFAULT_WORDS;
-  });
   const [inputText, setInputText] = useState("");
   const [winnerName, setWinnerName] = useState<string>("");
   const [showModal, setShowModal] = useState(false);
   const [customSpinAudio, setCustomSpinAudio] = useState<string>("");
   const [customWinAudio, setCustomWinAudio] = useState<string>("");
-  const [currentSpinCount, setCurrentSpinCount] = useState<number>(0);
+  const [dotRed, setDotRed] = useState(false);
+  const [hasSpun, setHasSpun] = useState(false);
 
-  // Load custom audio from localStorage & Reset lượt quay khi refresh
+  // Load custom audio from localStorage only
   useEffect(() => {
     const savedSpinAudio = localStorage.getItem('spinner_spin_audio');
     const savedWinAudio = localStorage.getItem('spinner_win_audio');
     if (savedSpinAudio) setCustomSpinAudio(savedSpinAudio);
     if (savedWinAudio) setCustomWinAudio(savedWinAudio);
-
-    // Reset lượt quay về 0 khi refresh trang
-    setCurrentSpinCount(0);
-    localStorage.setItem('current_spin_count', '0');
-    localStorage.setItem('guaranteed_winner_index', '0');
-    localStorage.removeItem('used_numbers');
-    console.log('🔄 Refresh trang - Reset toàn bộ lượt quay');
   }, []);
 
-  // Lưu vào localStorage khi words thay đổi
+  // Nhấp nháy chấm tròn đồng bộ
   useEffect(() => {
-    localStorage.setItem('spinner_words', JSON.stringify(words));
-  }, [words]);
+    const interval = setInterval(() => {
+      setDotRed(prev => !prev);
+    }, 300);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Khi mở modal, tự động đổ danh sách words vào textarea
+  useEffect(() => {
+    if (showModal) {
+      setInputText(words.join('\n'));
+    }
+  }, [showModal, words]);
 
   const getGuaranteedWinner = (): { name: string; index: number } | null => {
-    const guaranteedWinners: GuaranteedWinner[] = JSON.parse(
-      localStorage.getItem('guaranteed_winners') || '[]'
-    );
-
-    const currentIndex = parseInt(localStorage.getItem('guaranteed_winner_index') || '0');
-
-    console.log(`Check guaranteed: index=${currentIndex}, total=${guaranteedWinners.length}`);
+    console.log(`Check guaranteed: index=${guaranteedWinnerIndex}, total=${guaranteedWinners.length}`);
 
     // Nếu hết danh sách guaranteed winners
-    if (currentIndex >= guaranteedWinners.length) {
+    if (guaranteedWinnerIndex >= guaranteedWinners.length) {
       console.log('Hết danh sách guaranteed winners, quay random');
       return null;
     }
 
-    const nextWinner = guaranteedWinners[currentIndex];
+    const nextWinner = guaranteedWinners[guaranteedWinnerIndex];
 
     if (nextWinner) {
-      console.log(`Tìm thấy guaranteed winner: ${nextWinner.name} (thứ tự #${currentIndex + 1})`);
+      console.log(`Tìm thấy guaranteed winner: ${nextWinner.name} (thứ tự #${guaranteedWinnerIndex + 1})`);
 
       // Nếu là RANDOM thì quay ngẫu nhiên
       if (nextWinner.name === 'RANDOM') {
@@ -89,7 +88,7 @@ function App() {
         console.warn(`Guaranteed winner "${nextWinner.name}" không tồn tại trong danh sách. Bỏ qua và tăng index.`);
 
         // Tăng index để bỏ qua tên này
-        localStorage.setItem('guaranteed_winner_index', (currentIndex + 1).toString());
+        syncGuaranteedWinnerIndex(guaranteedWinnerIndex + 1);
 
         // Thử lấy người tiếp theo
         return getGuaranteedWinner();
@@ -196,6 +195,7 @@ function App() {
 
     console.log('=== BẮT ĐẦU QUAY ===');
     setIsSpin(true);
+    setHasSpun(true);
     setIsWinner(false);
     setWinnerName(""); // Reset winner name
 
@@ -233,17 +233,6 @@ function App() {
   const startAnimation = (elems: NodeListOf<Element>, wordIndex: number, word: string, isGuaranteed: boolean) => {
     let isDone = false;
 
-    // Fallback timeout nếu animation không kết thúc
-    const safetyTimeout = setTimeout(() => {
-      if (!isDone) {
-        console.error('Animation timeout! Force reset state');
-        setIsSpin(false);
-        setIsWinner(true);
-        setWinnerName(word);
-        setCurrentSpinCount(prev => prev + 1);
-      }
-    }, 10000); // 10 giây timeout
-
     // Sử dụng custom audio nếu có, không thì dùng mặc định
     const loopRoller = customSpinAudio
       ? new Audio(customSpinAudio)
@@ -251,8 +240,19 @@ function App() {
     loopRoller.loop = true;
     loopRoller.volume = 0.4;
 
-    const audioClick = audioClickFunc();
-    audioClick.play();
+    // Fallback timeout nếu animation không kết thúc
+    const safetyTimeout = setTimeout(() => {
+      if (!isDone) {
+        console.error('Animation timeout! Force reset state');
+        loopRoller.pause();
+        loopRoller.currentTime = 0;
+        setIsSpin(false);
+        setIsWinner(true);
+        setWinnerName(word);
+        syncSpinCount(currentSpinCount + 1);
+      }
+    }, (spinDuration + 5) * 1000); // timeout = spinDuration + 5 giây buffer
+
     loopRoller.play();
 
     elems.forEach((elem, idx) => {
@@ -261,6 +261,8 @@ function App() {
       gsapOne({
         elem: elem as HTMLDivElement,
         number: wordIndex,
+        totalDuration: spinDuration,
+        itemCount: words.length,
         onComplete: () => {
           if (isDone) {
             console.log(`onComplete called but already done (elem ${idx})`);
@@ -279,26 +281,23 @@ function App() {
           if (safetyTimeout) clearTimeout(safetyTimeout);
 
           loopRoller.pause();
+          loopRoller.currentTime = 0;
           audioWinner.play();
 
           console.log('Setting state: isSpin=false, isWinner=true');
           setIsSpin(false);
           setIsWinner(true);
           setWinnerName(word);
-          setCurrentSpinCount(prev => prev + 1);
+          syncSpinCount(currentSpinCount + 1);
 
           // Nếu là guaranteed winner, tăng index
           if (isGuaranteed) {
-            const currentIndex = parseInt(localStorage.getItem('guaranteed_winner_index') || '0');
-            localStorage.setItem('guaranteed_winner_index', (currentIndex + 1).toString());
-            console.log(`Tăng guaranteed_winner_index -> ${currentIndex + 1}`);
+            syncGuaranteedWinnerIndex(guaranteedWinnerIndex + 1);
+            console.log(`Tăng guaranteed_winner_index -> ${guaranteedWinnerIndex + 1}`);
           }
         },
-        onAlmostFinished: (progress) => {
-          if (progress >= 0.8) {
-            loopRoller.volume = Math.max(0, 1 - (progress - 0.8) * 5);
-            loopRoller.playbackRate = 1 - progress * 0.5;
-          }
+        onAlmostFinished: () => {
+          // Không thay đổi audio - để phát liên tục cho đến khi kết thúc
         },
       });
     });
@@ -312,7 +311,7 @@ function App() {
       .map(w => w.trim())
       .filter(w => w);
     if (newWords.length > 0) {
-      setWords(newWords);
+      syncWords(newWords);
       setInputText("");
       setShowModal(false);
     }
@@ -398,6 +397,18 @@ function App() {
     alert('Đã xóa nhạc tùy chỉnh!');
   };
 
+  // Loading state while Firebase initializes
+  if (isFirebaseLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-[#FFF9E6] to-[#FFE8B0]">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-[#F5971E] mb-4"></div>
+          <p className="text-xl font-semibold text-gray-700">Đang tải dữ liệu...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       {/* Settings Button */}
@@ -467,6 +478,26 @@ function App() {
                 <span className="text-gray-600 text-sm">
                   {words.length} tên trong danh sách
                 </span>
+              </div>
+
+              {/* Spin Duration Setting */}
+              <div className="pt-6 border-t border-gray-200">
+                <h3 className="text-xl font-semibold text-gray-800 mb-4">⏱️ Thời gian quay</h3>
+                <div className="flex items-center gap-4">
+                  <input
+                    type="number"
+                    min={3}
+                    max={120}
+                    value={spinDuration}
+                    onChange={(e) => {
+                      const val = Math.max(3, Math.min(120, Number(e.target.value) || 3));
+                      syncSpinDuration(val);
+                    }}
+                    className="w-24 px-4 py-2 rounded-xl border-2 border-gray-300 focus:outline-none focus:border-[#F5971E] text-lg text-center"
+                  />
+                  <span className="text-gray-600">giây / lượt quay</span>
+                </div>
+                <p className="text-sm text-gray-400 mt-1">Tối thiểu 3 giây, tối đa 120 giây</p>
               </div>
 
               {/* Audio Settings */}
@@ -539,27 +570,27 @@ function App() {
             {/* Dots border */}
             <div className="absolute inset-0 rounded-3xl p-2">
               {/* Top dots */}
-              <div className="absolute top-0 left-0 right-0 flex justify-around px-8">
-                {Array(30).fill("").map((_, i) => (
-                  <div key={`top-${i}`} className="w-5 h-5 bg-white rounded-full" />
+              <div className="absolute top-[3px] left-0 right-0 flex justify-evenly px-6">
+                {Array(35).fill("").map((_, i) => (
+                  <div key={`top-${i}`} className={`w-3.5 h-3.5 rounded-full transition-colors duration-0 ${dotRed ? 'bg-[rgb(235,33,57)]' : 'bg-white'}`} />
                 ))}
               </div>
               {/* Bottom dots */}
-              <div className="absolute bottom-0 left-0 right-0 flex justify-around px-8">
-                {Array(30).fill("").map((_, i) => (
-                  <div key={`bottom-${i}`} className="w-5 h-5 bg-white rounded-full" />
+              <div className="absolute bottom-[3px] left-0 right-0 flex justify-evenly px-6">
+                {Array(35).fill("").map((_, i) => (
+                  <div key={`bottom-${i}`} className={`w-3.5 h-3.5 rounded-full transition-colors duration-0 ${dotRed ? 'bg-[rgb(235,33,57)]' : 'bg-white'}`} />
                 ))}
               </div>
               {/* Left dots */}
-              <div className="absolute left-0 top-0 bottom-0 flex flex-col justify-around py-5">
-                {Array(6).fill("").map((_, i) => (
-                  <div key={`left-${i}`} className="w-5 h-5 bg-white rounded-full" />
+              <div className="absolute left-[3px] top-0 bottom-0 flex flex-col justify-evenly py-4">
+                {Array(8).fill("").map((_, i) => (
+                  <div key={`left-${i}`} className={`w-3.5 h-3.5 rounded-full transition-colors duration-0 ${dotRed ? 'bg-[rgb(235,33,57)]' : 'bg-white'}`} />
                 ))}
               </div>
               {/* Right dots */}
-              <div className="absolute right-0 top-0 bottom-0 flex flex-col justify-around py-5">
-                {Array(6).fill("").map((_, i) => (
-                  <div key={`right-${i}`} className="w-5 h-5 bg-white rounded-full" />
+              <div className="absolute right-[3px] top-0 bottom-0 flex flex-col justify-evenly py-4">
+                {Array(8).fill("").map((_, i) => (
+                  <div key={`right-${i}`} className={`w-3.5 h-3.5 rounded-full transition-colors duration-0 ${dotRed ? 'bg-[rgb(235,33,57)]' : 'bg-white'}`} />
                 ))}
               </div>
             </div>
@@ -572,6 +603,16 @@ function App() {
                   <h2 className="text-7xl font-bold text-black whitespace-nowrap">
                     {winnerName}
                   </h2>
+                </div>
+              ) : !hasSpun ? (
+                // Chưa quay - hiển thị ô trống
+                <div className="flex items-center justify-center h-[140px] min-w-[600px] max-w-[900px] px-8">
+                  <div className="text-center rounded-[0.6rem] w-full h-full">
+                    <div className="h-full text-black flex flex-col overflow-hidden items-center justify-center rounded-[0.4rem] font-semibold bg-white">
+                      <div className="h-[128px] flex items-center justify-center">
+                      </div>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 // Hiển thị spinner

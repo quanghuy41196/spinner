@@ -1,13 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
-    createContext,
-    FC,
-    PropsWithChildren,
-    useCallback,
-    useContext,
-    useEffect,
-    useMemo,
-    useState,
+  createContext,
+  FC,
+  PropsWithChildren,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
 } from "react";
 import { io, Socket } from "socket.io-client";
 import { objAction } from "../common/action";
@@ -31,7 +31,7 @@ const LayoutServiceWorker: FC<PropsWithChildren> = ({ children }) => {
       autoConnect: true,
     });
 
-    socket.on("sync_data", async (result) => {
+    socket.on("sync_data", async (result: { type: string; data: any }) => {
       try {
         const { type, data } = result;
         const newType = type as keyof typeof objAction;

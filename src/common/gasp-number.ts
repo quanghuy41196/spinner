@@ -1,9 +1,7 @@
 import gsap from "gsap";
 
-const LOOP = 6; // Tăng số vòng quay để quay lâu hơn
-const FINAL_LOOP = 20; // Số vòng quay phụ cho vòng cuối để quay chậm hơn - 20 vòng đầy đủ
-
-export const calculator = (num: number) => `-${(num / 11) * 100}%`;
+export const calculator = (num: number, totalItems: number = 11) =>
+  `-${(num / totalItems) * 100}%`;
 
 export interface IGsapOnePayload {
   elem: HTMLDivElement;
@@ -11,6 +9,8 @@ export interface IGsapOnePayload {
   onComplete: () => void;
   reset?: boolean;
   onAlmostFinished?: (progress: number) => void;
+  totalDuration?: number; // Tổng thời gian quay (giây), mặc định 10
+  itemCount?: number; // Số lượng items trong danh sách (không tính bản sao cuối)
 }
 
 export const gsapOne = ({
@@ -19,15 +19,27 @@ export const gsapOne = ({
   onComplete,
   reset = false,
   onAlmostFinished,
+  totalDuration = 10,
+  itemCount = 10,
 }: IGsapOnePayload) => {
-  // Vòng đầu - quay đều
+  const totalItems = itemCount + 1; // +1 cho bản sao item đầu tiên ở cuối
+
+  // Phân bổ thời gian: 30% cho vòng đầu (quay nhanh), 70% cho vòng cuối (giảm tốc)
+  const phase1Duration = totalDuration * 0.3;
+  const phase2Duration = totalDuration * 0.7;
+
+  // Tính số vòng lặp dựa trên thời gian
+  const loopCount = Math.max(1, Math.round(totalDuration / 5));
+  const singleLoopDuration = phase1Duration / (loopCount + 1);
+
+  // Vòng đầu - quay đều, tốc độ không đổi
   if (!reset) {
     gsap.to(elem, {
-      y: calculator(10),
-      duration: 3.5,
+      y: calculator(itemCount, totalItems),
+      duration: singleLoopDuration,
       ease: "none",
       stagger: 0.2,
-      repeat: LOOP,
+      repeat: loopCount,
       onUpdate: function () {
         const progress = this.progress();
         if (progress >= 0.9) {
@@ -41,68 +53,82 @@ export const gsapOne = ({
           number,
           onComplete,
           reset: true,
-          onAlmostFinished
+          onAlmostFinished,
+          totalDuration,
+          itemCount,
         });
       },
     });
     return;
   }
 
-  // Vòng cuối - chia thành nhiều đoạn chậm dần
+  // Vòng cuối - nhiều vòng quay chậm dần + đoạn cuối tiến đến đích
+  // Mỗi full cycle: y từ 0 -> calculator(itemCount), rồi set lại y=0 (liền mạch vì item cuối = item đầu)
   const tl = gsap.timeline({
     onComplete: () => {
       onComplete();
-    }
+    },
   });
 
-  const totalDistance = 10 * FINAL_LOOP + number;
-  const segment1 = totalDistance * 0.4; // 40% quãng đường
-  const segment2 = totalDistance * 0.25; // 25% quãng đường
-  const segment3 = totalDistance * 0.2; // 20% quãng đường
-  const segment4 = totalDistance * 0.08; // 8% quãng đường
-  const segment5 = totalDistance * 0.04; // 4% quãng đường
-  const segment6 = totalDistance * 0.02; // 2% quãng đường
-  // 1% quãng đường cuối sẽ được quay trong animation cuối cùng
+  // Số vòng full cycle trong pha giảm tốc
+  const decelerateCycles = Math.max(2, Math.round(phase2Duration / 2));
+  const cycleTimeBudget = phase2Duration * 0.55; // 55% thời gian cho các vòng giảm tốc
+  const finalApproachTime = phase2Duration * 0.45; // 45% thời gian cho đoạn cuối tiến đến đích
 
-  tl.to(elem, {
-    y: calculator(segment1),
-    duration: 5,
-    ease: "none",
-  })
-  .to(elem, {
-    y: calculator(segment1 + segment2),
-    duration: 6,
-    ease: "power1.out",
-  })
-  .to(elem, {
-    y: calculator(segment1 + segment2 + segment3),
-    duration: 8,
-    ease: "power2.out",
-  })
-  .to(elem, {
-    y: calculator(segment1 + segment2 + segment3 + segment4),
-    duration: 12,
-    ease: "power2.out",
-  })
-  .to(elem, {
-    y: calculator(segment1 + segment2 + segment3 + segment4 + segment5),
-    duration: 18,
-    ease: "power3.out",
-  })
-  .to(elem, {
-    y: calculator(segment1 + segment2 + segment3 + segment4 + segment5 + segment6),
-    duration: 25,
-    ease: "power4.out",
-    onUpdate: function() {
-      const progress = this.progress();
-      if (progress >= 0.3) {
-        onAlmostFinished?.(0.9 + progress * 0.1);
-      }
-    }
-  })
-  .to(elem, {
-    y: calculator(totalDistance),
-    duration: 35, // 35 giây cho 1% cuối - từ từ "bò" đến đích
-    ease: "sine.out", // Ease mềm mại nhất, không dừng đột ngột
-  });
+  // Tính duration cho từng vòng (tăng dần = chậm dần)
+  // Dùng tổng cấp số cộng: 1 + 2 + 3 + ... + n = n(n+1)/2
+  const sumWeights = (decelerateCycles * (decelerateCycles + 1)) / 2;
+
+  for (let i = 0; i < decelerateCycles; i++) {
+    const weight = i + 1; // vòng sau chậm hơn vòng trước
+    const cycleDuration = (cycleTimeBudget * weight) / sumWeights;
+    const ease = i < decelerateCycles / 2 ? "none" : "power1.out";
+
+    tl.to(elem, {
+      y: calculator(itemCount, totalItems),
+      duration: cycleDuration,
+      ease,
+    });
+
+    // Reset về 0 (liền mạch vì item cuối = bản sao item đầu)
+    tl.set(elem, { y: 0 });
+  }
+
+  // Đoạn cuối - tiến chậm đến vị trí đích
+  if (number === 0) {
+    // Nếu đích là item 0, chỉ cần 1 vòng chậm cuối
+    tl.to(elem, {
+      y: calculator(itemCount, totalItems),
+      duration: finalApproachTime,
+      ease: "power3.out",
+      onUpdate: function () {
+        const progress = this.progress();
+        if (progress >= 0.3) {
+          onAlmostFinished?.(0.9 + progress * 0.1);
+        }
+      },
+    });
+  } else {
+    // Quay thêm phần cuối: 1 vòng nhanh + tiến chậm đến đích
+    const lastFullCycleTime = finalApproachTime * 0.3;
+    const approachTime = finalApproachTime * 0.7;
+
+    tl.to(elem, {
+      y: calculator(itemCount, totalItems),
+      duration: lastFullCycleTime,
+      ease: "power1.out",
+    });
+    tl.set(elem, { y: 0 });
+    tl.to(elem, {
+      y: calculator(number, totalItems),
+      duration: approachTime,
+      ease: "power3.out",
+      onUpdate: function () {
+        const progress = this.progress();
+        if (progress >= 0.3) {
+          onAlmostFinished?.(0.9 + progress * 0.1);
+        }
+      },
+    });
+  }
 };

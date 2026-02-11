@@ -3,7 +3,6 @@
 
 const USED_NUMBERS = "used_numbers";
 const GUARANTEED_NUMBERS = "guaranteed_numbers";
-const VITECH_DB = "vitechgroup_db";
 
 // Tạo hoặc mở cơ sở dữ liệu
 export const initDB = async () => {
@@ -25,13 +24,13 @@ export const initDB = async () => {
   return Promise.resolve(null);
 };
 
-const getOneBaseDB = async (storeName: string, num: number) => {
+const getOneBaseDB = async (_storeName: string, _num: number) => {
   // const db = await initDB();
   // return db.getKey(storeName, num);
   return Promise.resolve(undefined);
 };
 
-export const addBaseDB = async (storeName: string, num: number) => {
+export const addBaseDB = async (_storeName: string, _num: number) => {
   // const db = await initDB();
   // const isHas = await getOneBaseDB(storeName, num);
   // if (isHas !== undefined) return;
@@ -42,19 +41,19 @@ export const addBaseDB = async (storeName: string, num: number) => {
   return Promise.resolve();
 };
 
-export const deleteBaseDB = async (storeName: string, num: number) => {
+export const deleteBaseDB = async (_storeName: string, _num: number) => {
   // const db = await initDB();
   // return db.delete(storeName, num);
   return Promise.resolve();
 };
 
-export const deleteAllBaseDB = async (storeName: string) => {
+export const deleteAllBaseDB = async (_storeName: string) => {
     // const db = await initDB();
     // return db.clear(storeName);
     return Promise.resolve();
   };
 
-export const getAllKeys = async (storeName: string) => {
+export const getAllKeys = async (_storeName: string) => {
   // const db = await initDB();
   // return db.getAllKeys(storeName);
   return Promise.resolve([]);

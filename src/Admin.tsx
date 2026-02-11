@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useFirebaseSync } from "./hooks/useFirebaseSync";
 
 const DEFAULT_USERNAME = "admin";
 const DEFAULT_PASSWORD = "admin123";
@@ -14,36 +15,32 @@ function Admin() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [guaranteedWinners, setGuaranteedWinners] = useState<GuaranteedWinner[]>([]);
   const [newWinnerName, setNewWinnerName] = useState("");
-  const [words, setWords] = useState<string[]>([]);
+
+  // Firebase sync
+  const {
+    isLoading: isFirebaseLoading,
+    words,
+    guaranteedWinners,
+    currentSpinCount,
+    guaranteedWinnerIndex,
+    syncGuaranteedWinners,
+    syncSpinCount,
+    syncGuaranteedWinnerIndex
+  } = useFirebaseSync();
 
   useEffect(() => {
     const loggedIn = sessionStorage.getItem('admin_logged_in');
     if (loggedIn === 'true') {
       setIsLoggedIn(true);
-      loadData();
     }
   }, []);
-
-  const loadData = () => {
-    const saved = localStorage.getItem('guaranteed_winners');
-    if (saved) {
-      setGuaranteedWinners(JSON.parse(saved));
-    }
-
-    const savedWords = localStorage.getItem('spinner_words');
-    if (savedWords) {
-      setWords(JSON.parse(savedWords));
-    }
-  };
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (username === DEFAULT_USERNAME && password === DEFAULT_PASSWORD) {
       setIsLoggedIn(true);
       sessionStorage.setItem('admin_logged_in', 'true');
-      loadData();
     } else {
       alert('Sai tài khoản hoặc mật khẩu!');
     }
@@ -89,30 +86,27 @@ function Admin() {
     };
 
     const updated = [...guaranteedWinners, newWinner];
-    setGuaranteedWinners(updated);
-    localStorage.setItem('guaranteed_winners', JSON.stringify(updated));
+    syncGuaranteedWinners(updated);
     setNewWinnerName("");
   };
 
   const handleDeleteWinner = (id: number) => {
     const updated = guaranteedWinners.filter(w => w.id !== id);
-    setGuaranteedWinners(updated);
-    localStorage.setItem('guaranteed_winners', JSON.stringify(updated));
+    syncGuaranteedWinners(updated);
   };
 
   const handleClearAll = () => {
     if (window.confirm('Bạn có chắc muốn xóa toàn bộ danh sách người trúng thưởng đã set?')) {
-      setGuaranteedWinners([]);
-      localStorage.removeItem('guaranteed_winners');
-      localStorage.setItem('guaranteed_winner_index', '0');
+      syncGuaranteedWinners([]);
+      syncGuaranteedWinnerIndex(0);
     }
   };
 
   const handleResetUsedNumbers = () => {
     if (window.confirm('Bạn có chắc muốn reset lại danh sách đã quay?')) {
       localStorage.removeItem('used_numbers');
-      localStorage.setItem('current_spin_count', '0');
-      localStorage.setItem('guaranteed_winner_index', '0');
+      syncSpinCount(0);
+      syncGuaranteedWinnerIndex(0);
       alert('Đã reset thành công!');
     }
   };
@@ -125,8 +119,7 @@ function Admin() {
             🔐 Admin Login
           </h1>
 
-          <form onSubmit={handleLogin} className="space-y-6">
-            <div>
+          <form onSubmit={handleLogin} className="space-y-6">\n            <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Tài khoản
               </label>
@@ -171,13 +164,25 @@ function Admin() {
             </button>
           </div>
 
-          <div className="mt-8 p-4 bg-gray-100 rounded-xl">
+          {/* <div className="mt-8 p-4 bg-gray-100 rounded-xl">
             <p className="text-sm text-gray-600 text-center">
               <strong>Tài khoản mặc định:</strong><br />
               User: admin<br />
               Pass: admin123
             </p>
-          </div>
+          </div> */}
+        </div>
+      </div>
+    );
+  }
+
+  // Loading state while Firebase initializes
+  if (isFirebaseLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 to-purple-600">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-white mb-4"></div>
+          <p className="text-xl font-semibold text-white">Đang tải dữ liệu...</p>
         </div>
       </div>
     );
